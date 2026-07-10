@@ -1,0 +1,254 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Cinematic Dark Backgrounds */
+  --color-bg-base: oklch(0.06 0.015 265);
+  --color-bg-surface: oklch(0.10 0.02 265);
+  --color-bg-elevated: oklch(0.14 0.025 265);
+  --color-bg-glass: oklch(0.18 0.03 265 / 0.4);
+
+  /* Cyan/Teal Primary */
+  --color-primary: oklch(0.70 0.15 200);
+  --color-primary-hover: oklch(0.75 0.16 200);
+  --color-primary-muted: oklch(0.70 0.15 200 / 0.2);
+  --color-primary-glow: oklch(0.70 0.15 200 / 0.3);
+
+  /* Amber Secondary/Accent */
+  --color-accent: oklch(0.75 0.18 85);
+  --color-accent-hover: oklch(0.80 0.19 85);
+  --color-accent-muted: oklch(0.75 0.18 85 / 0.2);
+
+  /* Warm tones for emotions/energy */
+  --color-warm: oklch(0.65 0.15 30);
+  --color-warm-muted: oklch(0.65 0.15 30 / 0.2);
+
+  /* Text */
+  --color-text-primary: oklch(0.95 0.01 265);
+  --color-text-secondary: oklch(0.70 0.03 265);
+  --color-text-muted: oklch(0.50 0.04 265);
+
+  /* Semantic */
+  --color-success: oklch(0.65 0.18 150);
+  --color-warning: oklch(0.75 0.18 85);
+  --color-error: oklch(0.60 0.20 30);
+  --color-info: oklch(0.65 0.15 240);
+
+  /* Glass */
+  --color-glass-border: oklch(1 0 0 / 0.08);
+  --color-glass-border-hover: oklch(1 0 0 / 0.15);
+
+  /* Shadows */
+  --shadow-glow-sm: 0 0 15px oklch(0.70 0.15 200 / 0.15);
+  --shadow-glow-md: 0 0 30px oklch(0.70 0.15 200 / 0.2);
+  --shadow-glow-lg: 0 0 60px oklch(0.70 0.15 200 / 0.25);
+}
+
+/* Base styles */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Glass card utility */
+.glass-card {
+  background: var(--color-bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 16px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--color-glass-border-hover);
+  box-shadow: var(--shadow-glow-sm);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gradient border */
+.gradient-border {
+  position: relative;
+  border-radius: 16px;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent), var(--color-primary));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow: 0 0 20px oklch(0.70 0.15 200 / 0.15), 0 0 40px oklch(0.70 0.15 200 / 0.1);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px oklch(0.75 0.18 85 / 0.15), 0 0 40px oklch(0.75 0.18 85 / 0.1);
+}
+
+/* Animated gradient background for hero */
+.bg-cinematic {
+  background: var(--color-bg-base);
+  position: relative;
+}
+
+.bg-cinematic::before {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background:
+    radial-gradient(ellipse at 20% 50%, oklch(0.70 0.15 200 / 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, oklch(0.75 0.18 85 / 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, oklch(0.65 0.15 240 / 0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scan line effect for futuristic feel */
+.scan-lines {
+  position: relative;
+}
+
+.scan-lines::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0 0 0 / 0.03) 2px,
+    oklch(0 0 0 / 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.30 0.04 265);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.40 0.06 265);
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes expand-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* Button base */
+.btn-primary {
+  background: linear-gradient(135deg, var(--color-primary), oklch(0.65 0.16 220));
+  color: var(--color-bg-base);
+  font-weight: 600;
+  padding: 0.625rem 1.5rem;
+  border-radius: 10px;
+  transition: all 0.15s ease-out;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary:hover {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-glow-md);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Tag/chip style */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text-secondary);
+}
+
+/* Skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-elevated) 25%,
+    var(--color-bg-glass) 50%,
+    var(--color-bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}

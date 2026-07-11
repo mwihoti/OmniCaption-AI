@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional
 
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
@@ -47,8 +47,14 @@ class JobStatus(BaseModel):
     job_id: str
     status: str
     progress: float
+    current_agent: Optional[str] = None
     result: Optional[dict] = None
     error: Optional[str] = None
+
+
+class CaptionShortenRequest(BaseModel):
+    text: str
+    style: str = "formal"
 
 
 # ─── Routes ───────────────────────────────────────────────────────────
@@ -74,12 +80,13 @@ async def analyze_video(
     job_id = str(uuid.uuid4())
 
     # Save uploaded file
-    # Allow overriding upload dir via env (helpful for local runs). Default to /data/uploads for container.
-    upload_dir = os.environ.get("UPLOAD_DIR", "/data/uploads")
+    # Use local data directory by default for both local dev and Docker
+    upload_dir = os.environ.get("UPLOAD_DIR")
+    if not upload_dir:
+        upload_dir = os.path.join(os.getcwd(), "data", "uploads")
     try:
         os.makedirs(upload_dir, exist_ok=True)
-    except PermissionError:
-        # Fallback to a local data directory inside the repo (user-writable)
+    except (PermissionError, OSError):
         upload_dir = os.path.join(os.getcwd(), "data", "uploads")
         os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, f"{job_id}_{file.filename}")
@@ -109,6 +116,15 @@ async def analyze_video(
     )
 
 
+@app.post("/api/captions/shorten")
+async def shorten_caption(req: CaptionShortenRequest):
+    """Shorten a single caption using AI."""
+    from app.pipeline import shorten_caption as _shorten
+
+    shortened = _shorten(req.text, req.style)
+    return {"original": req.text, "shortened": shortened, "style": req.style}
+
+
 @app.get("/api/jobs/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str):
     """Get the status and results of a video analysis job."""
@@ -120,6 +136,7 @@ async def get_job_status(job_id: str):
         job_id=job_id,
         status=job["status"],
         progress=job["progress"],
+        current_agent=job.get("current_agent"),
         result=job.get("result"),
         error=job.get("error"),
     )

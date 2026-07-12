@@ -1,0 +1,40 @@
+# fly.toml app configuration file generated for omnicaptionai on 2026-07-12T13:04:18+03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'omnicaptionai'
+primary_region = 'fra'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  DEVICE = 'cpu'
+  PROCESSING_DIR = '/data/processing'
+  UPLOAD_DIR = '/data/uploads'
+
+[[mounts]]
+  source = 'omnicaption_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[checks]
+  [checks.health]
+    port = 80
+    type = 'http'
+    interval = '30s'
+    timeout = '10s'
+    path = '/api/health'
+
+[[vm]]
+  memory = '2gb'
+  cpus = 2
+  memory_mb = 2048

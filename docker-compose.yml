@@ -1,49 +1,22 @@
-version: '3.8'
-
 services:
-  # ─── Backend: FastAPI + Free AI Models (Groq, Gemini, HuggingFace) ───
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+  app:
+    build: .
     ports:
-      - "8000:8000"
+      - "80:80"
     environment:
-      # Free AI Model API Keys — get yours at:
-      # Groq:        console.groq.com/keys         (Whisper + Llama 3)
-      # Gemini:      aistudio.google.com/apikey     (Vision analysis)
-      # HuggingFace: huggingface.co/settings/tokens (Emotion classifier)
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      - FIREWORKS_API_KEY=${FIREWORKS_API_KEY:-}
       - HF_API_TOKEN=${HF_API_TOKEN:-}
     volumes:
       - data_uploads:/data/uploads
       - data_processing:/data/processing
-      - ./backend:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # ─── Frontend: Vite + React + Tailwind ───
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "80:80"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-      - NODE_ENV=development
-    depends_on:
-      - backend
-    volumes:
-      - ./src:/app/src
-      - .:/app
-      - /app/node_modules
-    command: npm run dev -- --host 0.0.0.0 --port 80
 
 volumes:
   data_uploads:

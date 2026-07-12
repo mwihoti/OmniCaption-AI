@@ -1,64 +1,38 @@
-# ============================================
-# OmniCaption AI — Docker Configuration
-# AMD Developer Hackathon: ACT II — Track 2
-# ============================================
-
-# ---- Frontend Stage ----
+# ---- Frontend Build ----
 FROM node:20-alpine AS frontend
 
-WORKDIR /app/frontend
-COPY package.json ./
-RUN npm install
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
 COPY . .
+ENV VITE_API_URL=""
 RUN npm run build
 
-# ---- Backend Stage ----
-FROM rocm/pytorch:rocm6.2_ubuntu24.04_py3.12_pytorch_release_2.4.0 AS backend
+# ---- Backend Runtime ----
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# System dependencies
+# System deps
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    python3-pip \
+    nginx \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend code
-COPY backend/ /app/backend/
+# Python deps
+COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
-# Copy frontend build
-COPY --from=frontend /app/frontend/dist /app/frontend/dist
-
-# ---- Runtime Stage ----
-FROM rocm/pytorch:rocm6.2_ubuntu24.04_py3.12_pytorch_release_2.4.0
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    python3-pip \
-    nginx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy artifacts
-COPY --from=backend /app/ /app/
-COPY --from=frontend /app/frontend/dist /usr/share/nginx/html
-
-# Nginx config for serving frontend + proxying API
-RUN rm -f /etc/nginx/sites-enabled/default
+# Copy code
+COPY backend/ /app/backend/
+COPY --from=frontend /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create data directories
-RUN mkdir -p /data/uploads /data/processing
-
-# Environment variables
-ENV FIREWORKS_API_KEY=""
-ENV FIREWORKS_BASE_URL="https://api.fireworks.ai/inference/v1"
-ENV WHISPER_MODEL_SIZE="base"
-ENV DEVICE="cuda"
+# Data dirs
+RUN mkdir -p /data/uploads /data/processing && \
+    rm -f /etc/nginx/sites-enabled/default
 
 EXPOSE 80
 
-# Start both Nginx (frontend) and Uvicorn (backend)
-CMD sh -c "nginx && uvicorn backend.main:app --host 0.0.0.0 --port 8000"
+CMD ["sh", "-c", "nginx && uvicorn backend.main:app --host 0.0.0.0 --port 8000"]

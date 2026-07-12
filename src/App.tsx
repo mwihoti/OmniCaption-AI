@@ -101,22 +101,37 @@ export default function App() {
   const [lastJobId, setLastJobId] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Check backend health on mount
+  // Check backend health on mount (retry up to 3 times — Fly machine may be waking)
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let attempts = 0;
+    const maxAttempts = 3;
+    const check = async () => {
       const health = await checkBackendHealth();
-      if (!cancelled) {
-        setBackendStatus(health.healthy ? "online" : "offline");
+      if (cancelled) return;
+      if (health.healthy) {
+        setBackendStatus("online");
         setBackendHealth({
-          healthy: health.healthy,
+          healthy: true,
           groq: health.groq,
           gemini: health.gemini,
           huggingface: health.huggingface,
           fireworks: (health as any).fireworks || false,
         });
+      } else if (++attempts < maxAttempts) {
+        setTimeout(check, 1500);
+      } else {
+        setBackendStatus("offline");
+        setBackendHealth({
+          healthy: false,
+          groq: false,
+          gemini: false,
+          huggingface: false,
+          fireworks: false,
+        });
       }
-    })();
+    };
+    check();
     return () => {
       cancelled = true;
     };

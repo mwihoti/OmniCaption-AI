@@ -1,6 +1,8 @@
 # ---- Frontend Build ----
 FROM node:20-alpine AS frontend
 
+LABEL org.opencontainers.image.source="https://github.com/mwihoti/omnicaption-ai"
+
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -33,6 +35,8 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 RUN mkdir -p /data/uploads /data/processing && \
     rm -f /etc/nginx/sites-enabled/default
 
-EXPOSE 80
+# Expose ports
+EXPOSE 80 8000
 
-CMD ["sh", "-c", "nginx && uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
+# Start nginx in background and uvicorn in foreground
+CMD ["sh", "-c", "nginx -g 'daemon on;' && uvicorn backend.main:app --host 0.0.0.0 --port 8000"]

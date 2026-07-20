@@ -87,7 +87,7 @@ export default function App() {
   const [result, setResult] = useState<VideoAnalysisResult>(mockResult);
   // Expose the API URL used by the frontend (set via VITE_API_URL at dev or build time)
   const apiUrl =
-    (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
+    (import.meta.env.VITE_API_URL as string) || (import.meta.env.PROD ? window.location.origin : "http://localhost:8000");
   const [backendStatus, setBackendStatus] = useState<
     "checking" | "online" | "offline"
   >("checking");
@@ -97,6 +97,8 @@ export default function App() {
     gemini: boolean;
     huggingface: boolean;
     fireworks: boolean;
+    nvidia: boolean;
+    geminiModel?: string;
   } | null>(null);
   const [lastJobId, setLastJobId] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -105,7 +107,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 10;
     const check = async () => {
       const health = await checkBackendHealth();
       if (cancelled) return;
@@ -116,7 +118,9 @@ export default function App() {
           groq: health.groq,
           gemini: health.gemini,
           huggingface: health.huggingface,
-          fireworks: (health as any).fireworks || false,
+          fireworks: health.fireworks,
+          nvidia: health.nvidia,
+          geminiModel: health.geminiModel,
         });
       } else if (++attempts < maxAttempts) {
         setTimeout(check, 1500);
@@ -128,6 +132,7 @@ export default function App() {
           gemini: false,
           huggingface: false,
           fireworks: false,
+          nvidia: false,
         });
       }
     };
@@ -295,27 +300,43 @@ export default function App() {
             {backendStatus}
           </span>
         </div>
-        <div className="mt-1 text-[11px]">
-          Providers:{" "}
-          <span className="font-mono">
-            {backendHealth
-              ? `Fire:${backendHealth.fireworks ? "yes" : "no"}`
-              : ""}
+        <div className="mt-1 text-[11px] flex flex-wrap gap-x-2 gap-y-1 max-w-[150px]">
+          <span className="text-text-muted">Providers:</span>
+          <span
+            className={backendHealth?.nvidia ? "text-success" : "text-text-muted"}
+          >
+            NIM
           </span>
+          <span
+            className={backendHealth?.groq ? "text-success" : "text-text-muted"}
+          >
+            Groq
+          </span>
+          <span
+            className={backendHealth?.gemini ? "text-success" : "text-text-muted"}
+          >
+            Gemini
+          </span>
+          <span
+            className={
+              backendHealth?.huggingface ? "text-success" : "text-text-muted"
+            }
+          >
+            HF
+          </span>
+          <span
+            className={
+              backendHealth?.fireworks ? "text-success" : "text-text-muted"
+            }
+          >
+            FW
+          </span>
+          {backendHealth?.geminiModel && (
+            <div className="w-full text-[10px] opacity-40 mt-1">
+              {backendHealth.geminiModel}
+            </div>
+          )}
         </div>
-        <div className="mt-0.5 text-[11px]">
-          {backendHealth ? (
-            <div className="flex gap-2 mt-1">
-              <span
-                className={`text-xs ${backendHealth.groq ? "text-success" : "text-text-muted"}`}
-              >
-                Groq
-              </span>
-              <span
-                className={`text-xs ${backendHealth.gemini ? "text-success" : "text-text-muted"}`}
-              >
-                Gemini
-              </span>
               <span
                 className={`text-xs ${backendHealth.huggingface ? "text-success" : "text-text-muted"}`}
               >

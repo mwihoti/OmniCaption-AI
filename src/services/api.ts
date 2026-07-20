@@ -8,7 +8,7 @@
 import { mockAgentStatuses } from "../data/mockData";
 import type { VideoAnalysisResult, AgentStatus, CaptionStyle } from "../types";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "" : "http://localhost:8000");
 
 interface JobResponse {
   job_id: string;
@@ -205,6 +205,8 @@ export async function checkBackendHealth(): Promise<{
   gemini: boolean;
   huggingface: boolean;
   fireworks: boolean;
+  nvidia: boolean;
+  geminiModel?: string;
 }> {
   try {
     const response = await fetch(`${API_BASE}/api/health`, {
@@ -217,6 +219,7 @@ export async function checkBackendHealth(): Promise<{
         gemini: false,
         huggingface: false,
         fireworks: false,
+        nvidia: false,
       };
     const data = await response.json();
     return {
@@ -225,6 +228,8 @@ export async function checkBackendHealth(): Promise<{
       gemini: data.gemini_configured || false,
       huggingface: data.huggingface_configured || false,
       fireworks: data.fireworks_configured || false,
+      nvidia: data.nvidia_configured || false,
+      geminiModel: data.gemini_model,
     };
   } catch {
     return {
@@ -233,6 +238,7 @@ export async function checkBackendHealth(): Promise<{
       gemini: false,
       huggingface: false,
       fireworks: false,
+      nvidia: false,
     };
   }
 }

@@ -294,7 +294,7 @@ def groq_chat(
         ("fireworks", FIREWORKS_API_KEY, fireworks_chat),
     ]
 
-    last_error = ""
+    last_error = "All configured providers skipped or missing keys"
     for attempt in range(3):
         if attempt > 0:
             wait = 15 * attempt
@@ -318,6 +318,7 @@ def groq_chat(
                 had_rate_limit = True
                 continue
             try:
+                print(f"[info] Attempting {name} chat...")
                 result = fn(messages, temperature=temperature, max_tokens=max_tokens)
                 LAST_CHAT_PROVIDER = name
                 _chat_provider_ok(name)
@@ -334,8 +335,9 @@ def groq_chat(
                     _chat_provider_failed(name)
                 _log_error(name, e)
 
-        # If no provider returned a rate limit error, retrying won't help
-        if not had_rate_limit:
+        if not had_rate_limit and attempt == 0:
+            # If no provider worked and no provider was rate limited on first attempt,
+            # then they either all failed or all were missing keys. Don't retry.
             break
 
     return f"[generation failed after {attempt + 1} retries: {last_error[:100]}]"
@@ -612,57 +614,58 @@ def gemini_vision(prompt: str, image_base64: str, mime_type: str = "image/jpeg")
 
     # Fallback to Gemini
     if GEMINI_API_KEY and "gemini" not in _FAILED_VISION_PROVIDERS:
-        url = f"{GEMINI_BASE_URL}/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": mime_type,
-                                "data": image_base64,
-                            }
-                        },
-                    ]
-                }
-            ],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 256},
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            ],
-        }
-        _throttle_vision()
-        try:
-            resp = requests.post(url, json=payload, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text = parts[0].get("text", "") if parts else ""
-                if text:
-                    try:
-                        LAST_VISION_PROVIDER = f"gemini:{GEMINI_MODEL}"
-                    except Exception:
-                        pass
-                    return text
-        except Exception as e:
-            # No retries here: on rate limit (or any failure) hand off to
-            # NVIDIA immediately so frames keep flowing instead of sleeping.
-            if _is_rate_limit(e):
-                print("[info] Gemini vision rate-limited — switching to NVIDIA for this job")
-            else:
-                try:
-                    print(f"[warning] Gemini vision failed: {e}")
-                except Exception:
-                    pass
-            _FAILED_VISION_PROVIDERS.add("gemini")
+        # We try the configured model first, then fallback to 1.5-flash if it fails
+        models_to_try = [GEMINI_MODEL]
+        if GEMINI_MODEL != "gemini-1.5-flash":
+            models_to_try.append("gemini-1.5-flash")
+
+        for model in models_to_try:
+            url = f"{GEMINI_BASE_URL}/{model}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": mime_type,
+                                    "data": image_base64,
+                                }
+                            },
+                        ]
+                    }
+                ],
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 256},
+                "safetySettings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                ],
+            }
+            _throttle_vision()
             try:
-                LAST_VISION_PROVIDER = "gemini_failed"
-            except Exception:
-                pass
+                resp = requests.post(url, json=payload, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = parts[0].get("text", "") if parts else ""
+                    if text:
+                        try:
+                            LAST_VISION_PROVIDER = f"gemini:{model}"
+                        except Exception:
+                            pass
+                        return text
+            except Exception as e:
+                if _is_rate_limit(e):
+                    print(f"[info] Gemini vision {model} rate-limited")
+                else:
+                    print(f"[warning] Gemini vision {model} failed: {e}")
+                # continue to next model or next provider
+
+        _FAILED_VISION_PROVIDERS.add("gemini")
 
     # Fallback to HuggingFace
     if HF_API_TOKEN and "hf_vision" not in _FAILED_VISION_PROVIDERS:
@@ -1514,6 +1517,14 @@ def run_pipeline(job_id: str, video_path: str, jobs_store: Dict[str, Any]):
             jobs_store[job_id]["current_agent"] = agent_name
 
     print(f"[pipeline] Starting job {job_id} for {video_path}")
+    # Log which keys are found (partially masked)
+    for key_name in ["GROQ_API_KEY", "GEMINI_API_KEY", "HF_API_TOKEN", "NVIDIA_API_KEY", "FIREWORKS_API_KEY"]:
+        val = os.environ.get(key_name)
+        if val:
+            print(f"[info] Found {key_name}: {val[:4]}...{val[-4:] if len(val) > 8 else ''}")
+        else:
+            print(f"[warning] Missing {key_name}")
+
     global _FAILED_VISION_PROVIDERS
     _FAILED_VISION_PROVIDERS = set()
     _CHAT_PROVIDER_FAILURES.clear()

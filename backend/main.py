@@ -12,6 +12,10 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Add current directory to path so 'import app.pipeline' works when run from /app
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+
 app = FastAPI(
     title="OmniCaption AI",
     description="Multi-agent video intelligence system for the AMD Developer Hackathon: ACT II",
@@ -151,6 +155,8 @@ async def health():
         "gemini_configured": bool(os.environ.get("GEMINI_API_KEY")),
         "huggingface_configured": bool(os.environ.get("HF_API_TOKEN")),
         "fireworks_configured": bool(os.environ.get("FIREWORKS_API_KEY")),
+        "nvidia_configured": bool(os.environ.get("NVIDIA_API_KEY")),
+        "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
         "active_jobs": len(
             [j for j in JOBS.values() if j.get("status") == "processing"]
         ),

@@ -30,6 +30,8 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 COPY backend/ /app/backend/
 COPY --from=frontend /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/run.sh /app/run.sh
+RUN chmod +x /app/run.sh
 
 # Data dirs
 RUN mkdir -p /data/uploads /data/processing && \
@@ -38,5 +40,6 @@ RUN mkdir -p /data/uploads /data/processing && \
 # Expose ports
 EXPOSE 80 8000
 
-# Start nginx in background and uvicorn in foreground
-CMD ["sh", "-c", "nginx -g 'daemon on;' && uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
+# Dispatcher: batch pipeline in grader mode (/input/tasks.json present),
+# otherwise the web server. See docker/run.sh.
+CMD ["/app/run.sh"]

@@ -20,9 +20,37 @@ import signal
 import sys
 import time
 import traceback
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from app import pipeline
+
+# Where downloaded clips are staged (grader provides URLs, not local files).
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/tmp/clips")
+
+
+def resolve_source(clip_id, src):
+    """Return a local video path. If src is an http(s) URL, download it first."""
+    if not src:
+        raise RuntimeError("clip has no path/url")
+    if isinstance(src, str) and src.lower().startswith(("http://", "https://")):
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        ext = os.path.splitext(src.split("?")[0])[1] or ".mp4"
+        dest = os.path.join(DOWNLOAD_DIR, f"{clip_id}{ext}")
+        write_log(f"Downloading {clip_id} from {src}")
+        req = urllib.request.Request(src, headers={"User-Agent": "omnicaption/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
+            while True:
+                chunk = resp.read(1 << 20)  # 1 MiB
+                if not chunk:
+                    break
+                f.write(chunk)
+        size = os.path.getsize(dest)
+        if size == 0:
+            raise RuntimeError(f"downloaded 0 bytes from {src}")
+        write_log(f"Downloaded {clip_id}: {size} bytes -> {dest}")
+        return dest
+    return src  # already a local path
 
 INPUT_PATH = "/input/tasks.json"
 OUTPUT_PATH = "/output/results.json"
@@ -30,7 +58,10 @@ LOG_PATH = "/output/log.txt"
 
 # Time budgets (seconds). Kept comfortably under a typical grader wall clock so
 # we always flush results before the harness kills us. Override via env.
-GRADER_BUDGET_S = float(os.environ.get("GRADER_BUDGET_S", "600"))
+# Global budget is deliberately high: per-clip cap + incremental flush already
+# bound hangs, so we'd rather let every clip run than self-skip and risk
+# MISSING_TASKS. Lower it via env only if the grader's wall clock is tight.
+GRADER_BUDGET_S = float(os.environ.get("GRADER_BUDGET_S", "1800"))
 PER_CLIP_BUDGET_S = float(os.environ.get("PER_CLIP_BUDGET_S", "180"))
 
 
@@ -62,13 +93,13 @@ def read_tasks():
     return json.load(open(INPUT_PATH, "r"))
 
 
-def run_single(job_id, video_path, budget_s):
+def run_single(job_id, src, budget_s):
     jobs_store = {
         job_id: {
             "status": "queued",
             "progress": 0.0,
-            "file_path": video_path,
-            "filename": os.path.basename(video_path or ""),
+            "file_path": src,
+            "filename": os.path.basename((src or "").split("?")[0]),
             "created_at": "now",
             "result": None,
         }
@@ -77,11 +108,12 @@ def run_single(job_id, video_path, budget_s):
     def _on_timeout(signum, frame):
         raise _ClipTimeout(f"clip exceeded {budget_s:.0f}s budget")
 
-    # SIGALRM interrupts blocking network calls in the pipeline, so a hung
-    # provider can't stall the whole run.
+    # SIGALRM interrupts blocking network calls (download + provider calls) so a
+    # hung fetch or API can't stall the whole run.
     old_handler = signal.signal(signal.SIGALRM, _on_timeout)
     signal.setitimer(signal.ITIMER_REAL, max(1.0, budget_s))
     try:
+        video_path = resolve_source(job_id, src)  # downloads URLs, bounded by the budget
         pipeline.run_pipeline(job_id, video_path, jobs_store)
         return jobs_store[job_id].get("result") or {
             "id": job_id,
@@ -97,7 +129,7 @@ def run_single(job_id, video_path, budget_s):
             return partial
         return {"id": job_id, "status": "timeout", "error": str(e)}
     except Exception as e:
-        write_log(f"ERROR running pipeline for {video_path}: {e}")
+        write_log(f"ERROR running pipeline for {src}: {e}")
         write_log(traceback.format_exc())
         return {"id": job_id, "status": "error", "error": str(e)}
     finally:
@@ -129,8 +161,24 @@ def main():
 
     results = []
     for i, clip in enumerate(clips):
-        clip_id = clip.get("id") if isinstance(clip, dict) else f"clip-{i + 1}"
-        clip_path = clip.get("path") if isinstance(clip, dict) else clip
+        if isinstance(clip, dict):
+            # Preserve the grader's task id EXACTLY; accept common field names.
+            clip_id = (
+                clip.get("id")
+                or clip.get("task_id")
+                or clip.get("clip_id")
+                or clip.get("name")
+                or f"clip-{i + 1}"
+            )
+            clip_path = (
+                clip.get("path")
+                or clip.get("url")
+                or clip.get("video_url")
+                or clip.get("video")
+            )
+        else:
+            clip_id = f"clip-{i + 1}"
+            clip_path = clip
 
         elapsed = time.time() - start
         remaining = GRADER_BUDGET_S - elapsed

@@ -31,6 +31,10 @@ RUN chmod +x /app/run.sh
 RUN mkdir -p /app/data/uploads /app/data/processing
 
 ENV PYTHONUNBUFFERED=1
+# Track 2 only scores captions — skip the agents the judge never reads
+# (memes, social, accessibility, highlights, emotion, verification) to cut
+# per-clip runtime and API calls roughly in half. Unset for the full pipeline.
+ENV CAPTIONS_ONLY=1
 
 # ── API keys (optional) ────────────────────────────────────────────────
 # Pass keys at build time so they land in the image WITHOUT ever being

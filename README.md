@@ -113,57 +113,111 @@ But people need answers to much richer questions:
 
 ---
 
+## 🔑 API Keys
+
+OmniCaption calls hosted inference APIs at runtime. Each capability has a
+**primary provider and automatic fallbacks**, so you don't need all of them —
+but for full-quality captions you want a chat key and a vision key.
+
+| Env var | Powers | Priority | Get a key |
+|---|---|---|---|
+| `GROQ_API_KEY` | Chat (story + captions) **and** Whisper transcription | ⭐ Primary for text | https://console.groq.com |
+| `NVIDIA_API_KEY` | Vision / scene understanding | ⭐ Primary for vision | https://build.nvidia.com |
+| `GEMINI_API_KEY` | Vision fallback | Optional | https://aistudio.google.com/apikey |
+| `FIREWORKS_API_KEY` | Chat + transcription fallback | Optional | https://fireworks.ai |
+| `HF_API_TOKEN` | Emotion classifier + vision fallback | Optional | https://huggingface.co/settings/tokens |
+
+**Minimum recommended:** `GROQ_API_KEY` + `NVIDIA_API_KEY`. With no keys the
+pipeline still runs and writes valid output, but captions will be empty.
+
+Provider order — chat: Groq → NVIDIA → Fireworks. Vision: NVIDIA → Gemini →
+Hugging Face. Transcription: Fireworks (if set) → Groq.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- [AMD AI Developer Program](https://www.amd.com/en/developer/ai-program.html) account
-- [Fireworks AI API key](https://fireworks.ai) (with hackathon credits)
-- Docker (for containerized submission)
-- AMD GPU (for ROCm acceleration) or CPU fallback
+- Docker
+- At least one API key from the table above (`GROQ_API_KEY` + `NVIDIA_API_KEY` recommended)
 
-### Quick Start (Frontend Demo)
+### Run on Docker — Grader / batch mode (how the hackathon judges run it)
+
+This is the mode the scoring harness uses. Build the lean backend-only image
+(`Dockerfile.grader`), mount an `/input` folder with `tasks.json`, and read
+results from `/output`.
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-username/omnicaption-ai.git
-cd omnicaption-ai
+# 1. Build the grader image (keys are optional at build time; see note below)
+docker build -f Dockerfile.grader -t omnicaption-grader .
 
-# Install dependencies
-npm install
+# 2. Provide the task list. Each clip has an id and a video URL (or local path).
+mkdir -p /tmp/in /tmp/out
+cat > /tmp/in/tasks.json <<'JSON'
+{"clips":[
+  {"id":"v1","url":"https://storage.googleapis.com/amd-hackathon-clips/1860079-uhd_2560_1440_25fps.mp4"}
+]}
+JSON
 
-# Start the dev server
-npm run dev
+# 3. Run under the grading constraints (2 vCPU / 4 GB), passing keys at runtime
+docker run --rm --cpus=2 --memory=4g \
+  -e GROQ_API_KEY=gsk_xxx \
+  -e NVIDIA_API_KEY=nvapi_xxx \
+  -v /tmp/in:/input:ro \
+  -v /tmp/out:/output \
+  omnicaption-grader
+
+# 4. Read the captions
+cat /tmp/out/results.json
 ```
 
-The frontend runs standalone with mock data — no API key needed for the demo.
+The container auto-detects `/input/tasks.json` and runs the batch pipeline
+(`docker/run.sh` → `backend/entrypoint.py`). It downloads each `url`, produces
+captions, and writes `/output/results.json`. Each result contains a `captions`
+object with the four required styles: **`formal`, `sarcastic`, `humorous_tech`,
+`humorous_non_tech`**.
 
-### Full Stack (Docker)
+`tasks.json` accepts either `{"clips":[{id, url|path}, ...]}` or a bare list of
+paths/URLs; task ids are preserved exactly. The grader image sets
+`CAPTIONS_ONLY=1` so it produces only what Track 2 scores (skipping memes,
+social posts, accessibility, highlights, emotion, verification) for faster,
+lighter runs.
+
+> **Baking keys into the image** (so it runs with no runtime env — e.g. for a
+> submission where the judge can't inject secrets): pass them as build args.
+> ⚠️ A public image with baked keys is extractable — use throwaway keys you
+> revoke after judging.
+> ```bash
+> docker build -f Dockerfile.grader \
+>   --build-arg GROQ_API_KEY=gsk_xxx \
+>   --build-arg NVIDIA_API_KEY=nvapi_xxx \
+>   -t ghcr.io/mwihoti/omnicaption-ai:latest .
+> ```
+
+### Run on Docker — Web app (interactive UI + API)
 
 ```bash
-# Set your API key
-export FIREWORKS_API_KEY="fw_xxx"
+git clone https://github.com/mwihoti/omnicaption-ai.git
+cd omnicaption-ai
 
-# Build and run
+# Put your keys in a .env file (see the table above)
+cp .env.example .env   # then edit .env
+
 docker compose up --build
 ```
 
-Open **http://localhost** to see the app.
+Open **http://localhost**. Upload a video and the full 13-agent pipeline runs.
+(`docker compose` uses the full `Dockerfile`, which also builds the React UI.)
 
-### Backend Only (AMD Developer Cloud)
+### Frontend only (mock data, no keys)
 
 ```bash
-# Set up Python environment
-cd backend
-pip install -r requirements.txt
-
-# Set environment variables
-export FIREWORKS_API_KEY="fw_xxx"
-export DEVICE="cuda"
-
-# Start the API
-python main.py
+npm install
+npm run dev
 ```
+
+The UI runs standalone with mock data — no API key needed for a quick look.
 
 ---
 
@@ -171,12 +225,13 @@ python main.py
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **GPU Compute** | AMD Developer Cloud + ROCm | Run all AI workloads on AMD GPUs |
-| **Inference** | Fireworks AI API | Gemma 4 Vision, Qwen3-VL, Gemma 4 9B |
+| **GPU Compute** | AMD Developer Cloud + ROCm | Run AI workloads on AMD GPUs |
+| **Chat / captions** | Groq (primary) → NVIDIA NIM → Fireworks | Story building + 4-style caption generation |
+| **Vision** | NVIDIA NIM (primary) → Gemini → Hugging Face | Scene/frame understanding |
+| **Speech** | Whisper via Fireworks / Groq | Automatic speech recognition |
 | **Frontend** | React 18 + Tailwind CSS v4 | User interface with glassmorphism design |
 | **Backend** | FastAPI (Python 3.12) | REST API and agent orchestration |
-| **Video Processing** | FFmpeg + PySceneDetect | Frame extraction, scene detection |
-| **Speech** | OpenAI Whisper | Automatic speech recognition |
+| **Video Processing** | FFmpeg | Frame extraction, downscaling, audio |
 | **Containerization** | Docker + Docker Compose | Required for hackathon submission |
 | **Animation** | Framer Motion | UI animations and transitions |
 
@@ -188,18 +243,6 @@ python main.py
 
 ---
 
-## 📊 Track 2 Requirements
-
-This submission fulfills all Track 2 requirements:
-
-- ✅ **Fixed video clips** (30 seconds to 2 minutes)
-- ✅ **4 distinct caption styles**: Formal, Sarcastic, Tech Humor, Funny
-- ✅ **Fireworks AI API** for model inference
-- ✅ **Fine-tuning compatible architecture**
-- ✅ **Containerized** (Docker)
-- ✅ **LLM-Judge ready** — Verification Agent ensures accuracy and tone
-
----
 
 ## 🗂️ Project Structure
 

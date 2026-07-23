@@ -1,0 +1,62 @@
+# ---- Grader image (backend only) ----
+# The scoring harness mounts /input/tasks.json and reads /output/results.json.
+# It never uses the React UI or nginx, so we deliberately leave them out: a
+# smaller, single-process image boots faster and can't be broken by frontend
+# tooling. Build and submit THIS image for grading:
+#
+#   docker build -f Dockerfile.grader -t <registry>/omnicaption:grader --platform linux/amd64 .
+#   docker push <registry>/omnicaption:grader
+#
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.source="https://github.com/mwihoti/omnicaption-ai"
+
+WORKDIR /app
+
+# System deps: ffmpeg/ffprobe for frame + audio extraction.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps
+COPY backend/requirements.txt /app/backend/
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# Backend code
+COPY backend/ /app/backend/
+COPY docker/run.sh /app/run.sh
+RUN chmod +x /app/run.sh
+
+# Local scratch dirs (used when /data is not mounted)
+RUN mkdir -p /app/data/uploads /app/data/processing
+
+ENV PYTHONUNBUFFERED=1
+
+# ── API keys (optional) ────────────────────────────────────────────────
+# Pass keys at build time so they land in the image WITHOUT ever being
+# written into this Dockerfile or committed to git:
+#
+#   docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+#     -f Dockerfile.grader \
+#     --build-arg FIREWORKS_API_KEY=fw_xxx \
+#     --build-arg GROQ_API_KEY=gsk_xxx \
+#     --build-arg NVIDIA_API_KEY=nvapi_xxx \
+#     -t ghcr.io/mwihoti/omnicaption-ai:latest --push .
+#
+# WARNING: this image is PUBLIC — a baked key is extractable via `docker
+# history`/`docker inspect`. Use a key you will REVOKE right after judging.
+# If the submission platform offers an env/secret field, prefer that instead
+# and leave these unset.
+ARG FIREWORKS_API_KEY=""
+ARG GROQ_API_KEY=""
+ARG GEMINI_API_KEY=""
+ARG NVIDIA_API_KEY=""
+ARG HF_API_TOKEN=""
+ENV FIREWORKS_API_KEY=$FIREWORKS_API_KEY \
+    GROQ_API_KEY=$GROQ_API_KEY \
+    GEMINI_API_KEY=$GEMINI_API_KEY \
+    NVIDIA_API_KEY=$NVIDIA_API_KEY \
+    HF_API_TOKEN=$HF_API_TOKEN
+
+# Dispatcher: batch pipeline when /input/tasks.json is present, else uvicorn.
+CMD ["/app/run.sh"]

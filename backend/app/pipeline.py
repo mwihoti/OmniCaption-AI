@@ -288,9 +288,13 @@ def groq_chat(
             return first.get("text", "") if isinstance(first, dict) else str(first)
         raise ValueError("Groq returned empty response")
 
+    # Groq is the fast, reliable chat provider — try it first. NVIDIA's chat
+    # endpoint frequently read-times-out (~30s each), so it's a fallback here
+    # even though it stays primary for vision. This ordering avoids paying a
+    # ~60s timeout tax on every clip.
     providers = [
-        ("nvidia", NVIDIA_API_KEY, nvidia_chat),
         ("groq", GROQ_API_KEY, _groq_call),
+        ("nvidia", NVIDIA_API_KEY, nvidia_chat),
         ("fireworks", FIREWORKS_API_KEY, fireworks_chat),
     ]
 
@@ -716,9 +720,17 @@ def ffmpeg_extract_frames(
     video_path: str, output_dir: str, fps: float = 1.0
 ) -> List[str]:
     """Agent 1: Extract frames from video using FFmpeg."""
+    if not os.path.isfile(video_path):
+        raise RuntimeError(f"input video not found at {video_path}")
+    if os.path.getsize(video_path) == 0:
+        raise RuntimeError(f"input video is empty (0 bytes) at {video_path}")
     os.makedirs(output_dir, exist_ok=True)
     cmd = [
         "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
         "-i",
         video_path,
         "-vf",
@@ -730,8 +742,11 @@ def ffmpeg_extract_frames(
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
+        # ffmpeg writes the actual error at the END of stderr, so show the tail
+        # (the head is just the build banner).
+        err = (result.stderr or "").strip()
         raise RuntimeError(
-            f"FFmpeg frame extraction failed (rc={result.returncode}): {result.stderr[:500]}"
+            f"FFmpeg frame extraction failed (rc={result.returncode}): {err[-500:]}"
         )
     frames = sorted(os.listdir(output_dir))
     if not frames:
@@ -743,6 +758,10 @@ def ffmpeg_extract_audio(video_path: str, output_path: str) -> str:
     """Extract audio from video using FFmpeg."""
     cmd = [
         "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
         "-i",
         video_path,
         "-vn",
@@ -757,7 +776,8 @@ def ffmpeg_extract_audio(video_path: str, output_path: str) -> str:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
-        print(f"[warning] Audio extraction failed (rc={result.returncode}): {result.stderr[:200]}")
+        err = (result.stderr or "").strip()
+        print(f"[warning] Audio extraction failed (rc={result.returncode}): {err[-200:]}")
     return output_path
 
 

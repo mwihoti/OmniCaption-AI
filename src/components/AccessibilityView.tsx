@@ -45,6 +45,15 @@ export default function AccessibilityView({
         into a complete narrative.
       </p>
 
+      {audioSrc ? (
+        <div className="mb-4">
+          <audio controls preload="none" src={audioSrc} className="w-full" />
+          <div className="text-[10px] text-text-muted mt-1">
+            Play original video audio to verify transcripts
+          </div>
+        </div>
+      ) : null}
+
       <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
         {descriptions.map((desc, i) => (
           <div key={i} className="bg-bg-glass rounded-xl p-4">
@@ -115,15 +124,6 @@ export default function AccessibilityView({
                 <p className="text-[11px] text-text-muted leading-relaxed">
                   {desc.audio}
                 </p>
-                {/* audio play if frontend has a playable video url - show audio controls when available */}
-                {audioSrc ? (
-                  <div className="mt-2">
-                    <audio controls src={audioSrc} className="w-full" />
-                    <div className="text-[10px] text-text-muted mt-1">
-                      Play original video audio to verify transcript
-                    </div>
-                  </div>
-                ) : null}
               </div>
               <div className="bg-bg-elevated rounded-lg p-2.5">
                 <div className="flex items-center gap-1.5 mb-1.5">

@@ -17,14 +17,14 @@ export default function VideoPlayer({ url, captions, currentTime, onTimeUpdate, 
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showCaptions, setShowCaptions] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const handleTimeUpdate = () => {
-      const progress = (video.currentTime / video.duration) * 100;
-      setProgress(progress);
+      setProgress(video.duration ? (video.currentTime / video.duration) * 100 : 0);
       onTimeUpdate?.(video.currentTime);
     };
 
@@ -33,28 +33,57 @@ export default function VideoPlayer({ url, captions, currentTime, onTimeUpdate, 
       onDuration?.(video.duration);
     };
 
+    const handlePlay = () => setPlaying(true);
+    const handlePause = () => setPlaying(false);
+    const handleError = () => {
+      const err = video.error;
+      setError(err ? `Video failed to load (code ${err.code})` : 'Video failed to load');
+      setPlaying(false);
+    };
+
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('durationchange', handleDuration);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handlePause);
+    video.addEventListener('error', handleError);
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('durationchange', handleDuration);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handlePause);
+      video.removeEventListener('error', handleError);
     };
   }, [onTimeUpdate, onDuration]);
 
+  // Reset the error when a new source is loaded.
   useEffect(() => {
-    if (videoRef.current && currentTime !== undefined) {
-      videoRef.current.currentTime = currentTime;
+    setError(null);
+  }, [url]);
+
+  // Seek only when the parent requests a jump (timeline/highlight click).
+  // Small deltas are the video's own timeupdate echoed back through props —
+  // seeking on those stalls playback in a feedback loop.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || currentTime === undefined) return;
+    if (Math.abs(video.currentTime - currentTime) > 1) {
+      video.currentTime = currentTime;
     }
   }, [currentTime]);
 
   const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (playing) {
-      videoRef.current.pause();
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play().catch((err) => {
+        console.error('Video play failed:', err);
+        setError(err instanceof Error ? err.message : 'Playback failed');
+      });
     } else {
-      videoRef.current.play();
+      video.pause();
     }
-    setPlaying(!playing);
   };
 
   const formatTime = (s: number) => {
@@ -82,9 +111,14 @@ export default function VideoPlayer({ url, captions, currentTime, onTimeUpdate, 
           className="w-full h-full object-contain"
           onClick={togglePlay}
           playsInline
-          crossOrigin="anonymous"
           muted={muted}
         />
+
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+            <p className="text-xs text-white/80 px-4 text-center">{error}</p>
+          </div>
+        )}
 
         {/* Play/Pause overlay */}
         <div
@@ -99,7 +133,7 @@ export default function VideoPlayer({ url, captions, currentTime, onTimeUpdate, 
         </div>
 
         {/* Highlight markers on video */}
-        {highlights && highlights.map((h, i) => (
+        {duration > 0 && highlights && highlights.map((h, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 w-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-pointer group/marker"

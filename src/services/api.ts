@@ -89,12 +89,17 @@ function transformBackendResult(
     emotions: (jobResult.emotions as VideoAnalysisResult["emotions"]) || [],
     highlights:
       (jobResult.highlights as VideoAnalysisResult["highlights"]) || [],
-    captions: (jobResult.captions as VideoAnalysisResult["captions"]) || {
-      formal: "",
-      sarcastic: "",
-      techHumor: "",
-      funny: "",
-    },
+    // Backend uses grader-spec keys (humorous_tech / humorous_non_tech);
+    // map them onto the frontend's CaptionSet keys.
+    captions: (() => {
+      const raw = (jobResult.captions || {}) as Record<string, string>;
+      return {
+        formal: raw.formal || "",
+        sarcastic: raw.sarcastic || "",
+        techHumor: raw.techHumor || raw.humorous_tech || "",
+        funny: raw.funny || raw.humorous_non_tech || "",
+      };
+    })(),
     memes: (jobResult.memes as VideoAnalysisResult["memes"]) || [],
     socialPosts:
       (jobResult.socialPosts as VideoAnalysisResult["socialPosts"]) || [],

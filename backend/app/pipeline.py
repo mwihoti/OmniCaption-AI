@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+import threading
 import time
 import time as time_module
 from datetime import datetime
@@ -159,22 +160,28 @@ def _chat_provider_ok(name: str):
 _LAST_CHAT_TIME: float = 0.0
 # Gemini free tier allows ~15 vision requests/minute; space calls to stay under it
 _LAST_VISION_TIME: float = 0.0
+# Vision and chat stages now run on separate threads; the locks keep each
+# throttle's spacing guarantee intact under concurrency.
+_CHAT_THROTTLE_LOCK = threading.Lock()
+_VISION_THROTTLE_LOCK = threading.Lock()
 
 
 def _throttle_chat():
     global _LAST_CHAT_TIME
-    elapsed = time.time() - _LAST_CHAT_TIME
-    if elapsed < 1.5:
-        time.sleep(1.5 - elapsed)
-    _LAST_CHAT_TIME = time.time()
+    with _CHAT_THROTTLE_LOCK:
+        elapsed = time.time() - _LAST_CHAT_TIME
+        if elapsed < 1.5:
+            time.sleep(1.5 - elapsed)
+        _LAST_CHAT_TIME = time.time()
 
 
 def _throttle_vision():
     global _LAST_VISION_TIME
-    elapsed = time.time() - _LAST_VISION_TIME
-    if elapsed < 4.0:
-        time.sleep(4.0 - elapsed)
-    _LAST_VISION_TIME = time.time()
+    with _VISION_THROTTLE_LOCK:
+        elapsed = time.time() - _LAST_VISION_TIME
+        if elapsed < 4.0:
+            time.sleep(4.0 - elapsed)
+        _LAST_VISION_TIME = time.time()
 
 
 # ─── Helper: Call Groq API ────────────────────────────────────────────
@@ -1072,9 +1079,8 @@ def generate_captions(
     }
 
     captions = {}
-    for i, (style_name, tone) in enumerate(styles.items()):
-        if i > 0:
-            time.sleep(2.0)
+    for style_name, tone in styles.items():
+        # groq_chat already enforces 1.5s spacing between calls — no extra sleep.
         try:
             result = groq_chat(
                 [
@@ -1591,6 +1597,20 @@ def run_pipeline(job_id: str, video_path: str, jobs_store: Dict[str, Any]):
         if duration <= 0 and frames:
             duration = len(frames)  # approximate from 1fps frame count
 
+        # ======= AGENT 4 (started early): Speech Recognition =======
+        # Transcription hits a separate, unthrottled audio endpoint, so it runs
+        # in the background while the vision agents wait out their rate limits.
+        transcript_holder: Dict[str, Any] = {}
+
+        def _transcribe():
+            try:
+                transcript_holder["transcript"] = groq_transcribe_audio(audio_path)
+            except Exception as e:
+                print(f"Whisper transcription failed: {e}")
+
+        transcribe_thread = threading.Thread(target=_transcribe, daemon=True)
+        transcribe_thread.start()
+
         # ======= AGENT 2 & 5: Scene Detection + Vision via Gemini =======
         update_progress("Scene Detection Agent", 0.15)
         scenes = analyze_scenes_gemini(frames, duration)
@@ -1616,45 +1636,53 @@ def run_pipeline(job_id: str, video_path: str, jobs_store: Dict[str, Any]):
             "yes",
         )
 
-        # The redundant second vision pass isn't used by the story prompt, so it
-        # only costs time — skip it in captions-only mode.
-        if captions_only:
-            vision_results = []
-        else:
+        # The second vision pass and the frame-emotion pass only feed the final
+        # result (the story and caption prompts never read them), and the 4s
+        # vision throttle is what dominates wall time. Run both on a background
+        # thread so their rate-limited calls overlap with the chat agents below.
+        vision_holder: Dict[str, Any] = {"vision_results": [], "vision_emotions": []}
+
+        def _background_vision():
+            try:
+                vision_holder["vision_results"] = analyze_frames_vision(frames, duration)
+            except Exception as e:
+                print(f"[warning] frame vision analysis failed: {e}")
+            try:
+                vision_holder["vision_emotions"] = analyze_emotions_vision(frames, duration)
+            except Exception as e:
+                print(f"[warning] vision emotion analysis failed: {e}")
+
+        vision_thread = None
+        if not captions_only:
             update_progress("Vision Understanding Agent", 0.25)
-            vision_results = analyze_frames_vision(frames, duration)
+            vision_thread = threading.Thread(target=_background_vision, daemon=True)
+            vision_thread.start()
 
         # ======= AGENT 4: Speech Recognition via Groq Whisper =======
         update_progress("Speech Recognition Agent", 0.35)
-        try:
-            transcript = groq_transcribe_audio(audio_path)
-        except Exception as e:
-            transcript = {"text": "", "segments": [], "language": "en"}
-            print(f"Whisper transcription failed: {e}")
+        transcribe_thread.join()
+        transcript = transcript_holder.get("transcript") or {
+            "text": "",
+            "segments": [],
+            "language": "en",
+        }
 
         # ======= AGENT 3: Audio Intelligence =======
         update_progress("Audio Intelligence Agent", 0.20)
         audio_events = generate_audio_events(transcript, duration)
 
-        # ======= AGENT 7: Emotion Analysis =======
+        # ======= AGENT 7: Emotion Analysis (text now; vision merged at the end) =======
         if captions_only:
-            combined_emotions = []
+            text_emotions = []
         else:
             update_progress("Emotion Analysis Agent", 0.45)
             text_emotions = analyze_emotions_text(transcript)
-            vision_emotions = analyze_emotions_vision(frames, duration)
-            # Merge: prefer text-based emotions, supplement with vision
-            combined_emotions = text_emotions + [
-                e
-                for e in vision_emotions
-                if not any(abs(e["time"] - te["time"]) < 3 for te in text_emotions)
-            ]
-            # Sort by time
-            combined_emotions.sort(key=lambda x: x["time"])
 
         # ======= AGENT 6: Story Builder via Groq =======
         update_progress("Story Builder Agent", 0.55)
-        story = build_story_groq(scenes, transcript, vision_results, duration)
+        # build_story_groq only reads scenes + transcript; the vision pass may
+        # still be running in the background, so pass an empty list.
+        story = build_story_groq(scenes, transcript, [], duration)
 
         # ======= AGENT 10: Caption Generation via Groq =======
         update_progress("Caption Generation Agent", 0.65)
@@ -1680,6 +1708,21 @@ def run_pipeline(job_id: str, video_path: str, jobs_store: Dict[str, Any]):
             # ======= AGENT 12: Social Media via Groq =======
             update_progress("Social Media Generator", 0.90)
             social_posts = generate_social_posts(story, captions)
+
+        # ======= Collect background vision work (Agents 5 & 7, vision half) =======
+        vision_results = []
+        combined_emotions = []
+        if vision_thread:
+            vision_thread.join()
+            vision_results = vision_holder["vision_results"]
+            vision_emotions = vision_holder["vision_emotions"]
+            # Merge: prefer text-based emotions, supplement with vision
+            combined_emotions = text_emotions + [
+                e
+                for e in vision_emotions
+                if not any(abs(e["time"] - te["time"]) < 3 for te in text_emotions)
+            ]
+            combined_emotions.sort(key=lambda x: x["time"])
 
         # ======= Build chapters from scenes =======
         chapters = [

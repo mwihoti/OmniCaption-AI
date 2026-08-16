@@ -337,19 +337,6 @@ export default function App() {
             </div>
           )}
         </div>
-              <span
-                className={`text-xs ${backendHealth.huggingface ? "text-success" : "text-text-muted"}`}
-              >
-                HF
-              </span>
-              <span
-                className={`text-xs ${backendHealth && backendHealth.fireworks ? "text-success" : "text-text-muted"}`}
-              >
-                FW
-              </span>
-            </div>
-          ) : null}
-        </div>
       </div>
 
       {/* Backend status indicator */}

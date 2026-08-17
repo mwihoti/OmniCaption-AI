@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import Header from "./components/Header";
+import HomeHero from "./components/HomeHero";
 import UploadZone from "./components/UploadZone";
 import VideoPlayer from "./components/VideoPlayer";
 import Timeline from "./components/Timeline";
@@ -385,6 +386,11 @@ export default function App() {
 
       <main className="relative z-10 pt-24 pb-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
+          {/* Landing homepage — hidden once analysis starts */}
+          <AnimatePresence>
+            {!isProcessing && !isComplete && <HomeHero />}
+          </AnimatePresence>
+
           {/* Hero / Upload Section */}
           <section className="mb-12">
             <UploadZone
